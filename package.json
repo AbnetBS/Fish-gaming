@@ -1,0 +1,35 @@
+{
+  "name": "reef-raiders",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reef Raiders — professional web-based fish-shooting arcade gaming platform (virtual DEMO COINS only).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "setup": "npm install",
+    "db:reset": "npm run db:reset -w @reef/server",
+    "db:seed": "npm run db:seed -w @reef/server",
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @reef/server",
+    "dev:web": "npm run dev -w @reef/web",
+    "build": "npm run build -w @reef/shared && npm run build -w @reef/server && npm run build -w @reef/web",
+    "start": "npm run start -w @reef/server",
+    "typecheck": "npm run typecheck -w @reef/shared && npm run typecheck -w @reef/server && npm run typecheck -w @reef/web",
+    "test": "npm run test -w @reef/server && npm run test -w @reef/web",
+    "test:server": "npm run test -w @reef/server",
+    "lint": "npm run typecheck",
+    "e2e:flow": "npm run e2e:flow -w @reef/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}
