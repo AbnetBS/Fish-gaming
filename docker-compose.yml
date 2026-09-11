@@ -22,31 +22,33 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     environment:
-      NODE_ENV: production
-      HOST: 0.0.0.0
-      PORT: 3000
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
-      DB_FILE: ./data/reef-raiders.db
-      # Required. Refuse to boot with a predictable signing key:
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — generate one with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"}
+      NODE_ENV: 'production'
+      HOST: '0.0.0.0'
+      PORT: '3000'
+      PUBLIC_URL: '${PUBLIC_URL:-http://localhost:3000}'
+      DB_FILE: './data/reef-raiders.db'
+      # Required — compose refuses to start without it, so a predictable signing
+      # key can never reach production. Generate one with:
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required (see the comment above)}'
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-2592000}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      COOKIE_SECURE: '${COOKIE_SECURE:-false}'
+      CORS_ORIGINS: '${CORS_ORIGINS:-}'
       STARTING_DEMO_COINS: ${STARTING_DEMO_COINS:-10000}
       SIM_TICK_MS: ${SIM_TICK_MS:-50}
       SNAPSHOT_MS: ${SNAPSHOT_MS:-50}
       ROUND_DURATION_S: ${ROUND_DURATION_S:-1800}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: '${LOG_LEVEL:-info}'
       # Hard gate. Real money requires the licensing/KYC/AML/age/geo
       # approvals in docs/COMPLIANCE.md; there is no in-app path around it.
       REAL_MONEY_ENABLED: "false"
-      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@reefraiders.local}
-      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_EMAIL: '${BOOTSTRAP_ADMIN_EMAIL:-admin@reefraiders.local}'
+      BOOTSTRAP_ADMIN_USERNAME: '${BOOTSTRAP_ADMIN_USERNAME:-admin}'
       # Change this immediately, or delete the bootstrap admin after first login.
-      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe!2345}
+      BOOTSTRAP_ADMIN_PASSWORD: '${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe!2345}'
     volumes:
       - reef-data:/app/data
     healthcheck:

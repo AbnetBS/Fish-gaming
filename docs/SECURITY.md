@@ -99,7 +99,9 @@ Responsible-gaming controls are server-enforced state, not client preferences:
 
 * `profiles.session_limit_min` is read when a player attaches to a room and turns into an in-memory
   deadline; `RoundManager.fire()` refuses shots past it and closes the session, so no client —
-  including the HTTP transport and any hand-rolled caller — can spend past the budget.
+  including the HTTP transport and any hand-rolled caller — can spend past the budget. Because the
+  deadline is armed on attach, a limit changed by an operator *during* a round takes effect on the
+  next two-second sweep rather than on the next shot.
 * `profiles.self_excluded_until` blocks join, attach and fire, and a 2 s sweep per room removes a
   player who started an exclusion mid-round. Only `users:write` (or a super/compliance admin) can
   clear it, and the write is audited with a reason.

@@ -418,16 +418,18 @@ section('10 · player protection is enforced, not decorative');
   const me = await api(token, 'GET', '/api/me');
   const userId = me.json.user.id as string;
 
-  const saved = await api(token, 'PATCH', '/api/me/profile', { sessionLimitMin: 1 });
-  check('player can set a daily play limit', saved.status === 200 && saved.json.profile?.sessionLimitMin === 1, saved.json);
+  // Five minutes is deliberately above the seconds of play already recorded, so
+  // the state below is set by us rather than raced against the 2s limit sweep.
+  const saved = await api(token, 'PATCH', '/api/me/profile', { sessionLimitMin: 5 });
+  check('player can set a daily play limit', saved.status === 200 && saved.json.profile?.sessionLimitMin === 5, saved.json);
 
   const state = await api(token, 'GET', '/api/me/limits');
-  check('the limit reads back from the same rows the game enforces', state.status === 200 && state.json.limitMin === 1, state.json);
+  check('the limit reads back from the same rows the game enforces', state.status === 200 && state.json.limitMin === 5, state.json);
 
-  // Pretend this player has already played ten minutes today, then try to keep playing.
+  // Pretend this player has already played twenty minutes today, then keep playing.
   getDb().run(
     "UPDATE game_sessions SET started_at = ? WHERE user_id = ? AND status = 'ACTIVE'",
-    new Date(Date.now() - 10 * 60_000).toISOString(),
+    new Date(Date.now() - 20 * 60_000).toISOString(),
     userId,
   );
 
@@ -445,7 +447,15 @@ section('10 · player protection is enforced, not decorative');
     originX: 960,
     originY: 984,
   });
-  check('firing is refused too, so the limit cannot be worked around', blockedFire.status >= 400 && blockedFire.json.error?.code === 'SESSION_LIMIT_REACHED', blockedFire.json);
+  // Either refusal is a pass: the budget itself rejected the shot, or the
+  // periodic sweep had already closed the session for the same reason. What must
+  // never happen is a shot that lands after the limit.
+  check(
+    'firing is refused too, so the limit cannot be worked around',
+    blockedFire.status >= 400 &&
+      ['SESSION_LIMIT_REACHED', 'NO_ACTIVE_SESSION', 'INVALID_SESSION'].includes(blockedFire.json.error?.code ?? ''),
+    blockedFire.json,
+  );
 
   const balanceAfter = await api(token, 'GET', '/api/me');
   check('the refused shot cost nothing', balanceAfter.json.wallet?.balance === me.json.wallet?.balance, {

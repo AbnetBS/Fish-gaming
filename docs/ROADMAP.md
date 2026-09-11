@@ -4,7 +4,9 @@ Deliberate deferrals, in the order that makes sense for a product like this.
 
 ## 1 — Hardening the demo (no new features, less risk)
 
-* CI workflow: typecheck + both test suites + `e2e:flow`, plus a build artifact per PR.
+* ~~CI workflow~~ — `ci/workflow.yml` runs typecheck, all three suites, `e2e:flow`, the
+  production build, a boot-from-`dist` check and a Docker image build with a health probe.
+  One rename moves it to `.github/workflows/ci.yml` (app tokens may not push workflow files).
 * Load test: 200 sockets across 8 rooms, measure tick drift and p95 snapshot latency; publish the
   numbers so the `maxActiveFish`/`SNAPSHOT_MS` trade-off is evidence-based.
 * Device matrix: real iOS Safari and Android Chrome passes (landscape lock, audio unlock,
@@ -26,8 +28,8 @@ is about richness rather than plumbing:
 
 * More species and movement patterns; fish behaviours that react to shots (schools that scatter).
 * Objectives and missions (daily challenges) evaluated **server-side** from recorded events.
-* Progression that never touches the wallet: cosmetics for the cannon skin, catch-log badges.
-*jackpots that pay demo coins only, with published odds.
+* Progression that never touches the wallet: cosmetics for the cannon skin, catch-log badges,
+  jackpots that pay demo coins only, with published odds.
 * A certification-friendly "odds sheet" endpoint: per-species spawn share × reward, so any round's
   expected return can be independently recomputed.
 

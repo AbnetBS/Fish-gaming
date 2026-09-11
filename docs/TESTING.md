@@ -61,7 +61,16 @@ through:
 9. a new round is pinned to the newly published version
 10. return to dashboard, logout, and the revoked session cannot be used again
 
-Exit code is non-zero if any check fails, so it drops into CI as-is.
+Exit code is non-zero if any check fails, so `ci/workflow.yml` runs it verbatim on every push and
+PR, along with typecheck, the three suites, the production build, a boot-from-`dist` check and a
+Docker image build with a health probe. It ships one rename away from `.github/workflows/ci.yml`
+because GitHub App tokens are not allowed to push workflow files.
+
+The journey avoids timing races on purpose: where the server can legitimately refuse an action in
+more than one way (a play-limit refusal, or the periodic sweep having closed the session first), the
+check asserts the *outcome* — no shot landed, nothing was charged — instead of pinning one error
+code. Run it repeatedly: `for i in 1 2 3 4; do npm run e2e:flow -w @reef/server; done` must be green
+four times, which is how the flake in the player-protection section was found and fixed.
 
 ## Manual checklist (touch devices)
 

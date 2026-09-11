@@ -249,8 +249,9 @@ fish-hunting titles. Names, species, rooms and copy are original.
 The protections here are enforced in the play path rather than printed on a page:
 
 * **Daily play limit** — the player picks a number of minutes; usage is summed from their real
-  `game_sessions` rows for the current UTC day. Past the budget the server closes the session and
-  refuses further shots on *both* transports, and the game HUD shows the running total.
+  `game_sessions` rows for the current UTC day. The allowance becomes an armed deadline the moment
+  they attach, so past the budget every further shot is refused on *both* transports and the session
+  is closed. A limit changed while someone is mid-round is picked up by a two-second sweep per room.
 * **Self-exclusion** — 24 hours to 90 days, startable by the player at any time, effective within
   seconds even mid-round, and impossible to shorten from their own account. Lifting needs an admin
   with user-write permission plus a reason, and is written to the audit log.
