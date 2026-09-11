@@ -1,0 +1,115 @@
+name: CI
+
+# ACTIVATION: this file lives at `ci/` on purpose. GitHub blocks App/bot tokens
+# that lack the `workflows` permission from pushing any change under
+# `.github/workflows/`, so it could not be pushed from this workflow-in-tree
+# location. To turn CI on, move it into place with a normal human account:
+#
+#     mkdir -p .github/workflows && git mv ci/workflow.yml .github/workflows/ci.yml
+#     git commit -m "ci: enable workflow" && git push
+#
+# Everything below is ready to run exactly as-is on ubuntu-latest with the
+# repository's Node 22 toolchain; no secrets are required (the demo ship needs
+# none) and both jobs are read-only apart from the 7-day build artifact.
+# Everything that must be true before a change to this repository can be
+# trusted: types, the three test suites, the scripted full-product journey and
+# a real production build. Each job uses the same commands the README lists, so
+# a green run is reproducible locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck · test · e2e · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (shared, server, web)
+        run: npm run typecheck
+
+      - name: Build shared + server
+        run: |
+          npm run build -w @reef/shared
+          npm run build -w @reef/server
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Shared economy tests
+        run: npm run test -w @reef/shared
+
+      - name: Full-product journey (register → play → admin → audit)
+        run: npm run e2e:flow
+
+      - name: Production web build
+        run: npm run build -w @reef/web
+
+      # Guards the packaging bug that once made a "green" build unbootable:
+      # tsc does not copy db/schema.sql, so `npm start` died on a fresh database.
+      - name: Built server boots against an empty database
+        run: |
+          mkdir -p /tmp/boot-check
+          DB_FILE=/tmp/boot-check/smoke.db NODE_ENV=production PORT=3111 \
+          JWT_SECRET="$(node -e 'console.log(require("crypto").randomBytes(48).toString("base64url"))')" \
+          node packages/server/dist/index.js &
+          pid=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3111/api/health >/dev/null 2>&1; then
+              echo "boot ok"; kill $pid; exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became healthy"; kill $pid; exit 1
+
+      - name: Upload client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-client
+          path: packages/web/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  docker:
+    name: Image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # Build only: nothing is published, this deployment ships virtual coins.
+      - name: Build the production image
+        run: docker build -t reef-raiders:ci .
+      - name: Container answers /api/health
+        run: |
+          docker run -d --name reef-smoke -p 3000:3000 \
+            -e JWT_SECRET="$(node -e 'console.log(require("crypto").randomBytes(48).toString("base64url"))')" \
+            reef-raiders:ci
+          for i in $(seq 1 40); do
+            if docker exec reef-smoke node -e \
+              "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              echo "container healthy"; docker logs reef-smoke; exit 0
+            fi
+            sleep 2
+          done
+          docker logs reef-smoke
+          exit 1

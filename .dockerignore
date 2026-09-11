@@ -1,0 +1,49 @@
+# Build context hygiene: keep host state out of the image so the container is
+# reproducible and `npm ci` installs clean.
+
+# dependencies / build output (rebuilt inside the image)
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/build
+*.tsbuildinfo
+.vite
+coverage
+
+# runtime state — the DB is created from migrations + seed on first boot
+data
+**/data
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+logs
+*.log
+npm-debug.log*
+
+# secrets: env is injected by the orchestrator, never baked in
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# version control / tooling / editor noise
+.git
+.gitignore
+.github
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# container & CI files that don't belong in the layer cache
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# documentation is not needed at runtime
+docs
+README.md

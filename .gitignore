@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# runtime data (sqlite databases, logs, uploads)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+logs/
+*.log
+npm-debug.log*
+
+# environment / secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# editors / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# test / coverage
+coverage/
+.vite/
+.cache/
