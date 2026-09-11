@@ -58,7 +58,7 @@ const STEPS = [
 export function Landing(): JSX.Element {
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
-  const { meta, config } = usePlatform();
+  const { meta, config, error: platformError } = usePlatform();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rooms, setRooms] = useState<Awaited<ReturnType<typeof api.rooms>>['rooms']>([]);
 
@@ -96,6 +96,15 @@ export function Landing(): JSX.Element {
 
   return (
     <div className="landing">
+      {platformError && (
+        <div className="preview-banner" role="status">
+          <span className="dot" aria-hidden="true" />
+          <span>
+            <strong>Preview mode</strong> — the game server isn&apos;t reachable, so this page is showing static content.
+            Logins, rooms and live play need the API connected.
+          </span>
+        </div>
+      )}
       <div className="ocean-backdrop-wrap">
         <OceanBackdrop density={1.1} />
       </div>

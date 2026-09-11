@@ -109,9 +109,34 @@ any node can host any room; move rate limiting to a shared store. For very large
 replace SQLite with Postgres (the `Database` wrapper is the only file that changes) and add
 `SELECT … FOR UPDATE` on the wallet row instead of relying on the serialised write lock.
 
+## Vercel (static frontend)
+
+Vercel hosts the **frontend only**. The API is a long-lived Fastify process with WebSockets and a
+SQLite file, which does not fit Vercel's serverless model — run it on Render, Railway, Fly.io, a
+VPS or Docker, and point the Vercel site at it.
+
+The repo ships a `vercel.json`, so a Vercel project needs no dashboard build tweaks:
+
+* **Root Directory:** the repository root (the default — do *not* set it to `packages/web`,
+  the client depends on the `@reef/shared` workspace package).
+* Build, output directory and SPA rewrites come from `vercel.json`.
+* **Environment variable:** `VITE_API_BASE=https://your-api-host` (no trailing slash). Without
+  it the site renders a static preview of the landing page with a "Preview mode" banner; logins,
+  rooms and live play need the API.
+
+On the API host, allow the Vercel origin explicitly:
+
+```bash
+CORS_ORIGINS=https://your-site.vercel.app
+COOKIE_SECURE=true
+COOKIE_SAMESITE=none     # required: browsers won't send Lax cookies cross-origin
+```
+
+`SameSite=None` cookies require HTTPS, which the server enforces automatically.
+
 ## Static hosting alternative
 
-If you want the client on a CDN: build `@reef/web`, upload `packages/web/dist`, and set
-`CORS_ORIGINS` to that origin. Keep `/api` and `/ws/game` on the same host as each other — the
-client uses relative URLs only, and the WebSocket needs the same origin to reuse the session
-cookie.
+If you want the client on a plain CDN instead: set `VITE_API_BASE` to the API origin at build
+time, build `@reef/web`, upload `packages/web/dist`, and set `CORS_ORIGINS` / `COOKIE_SAMESITE`
+as above. Keep `/api` and `/ws/game` on the same host as each other — the WebSocket derives its
+URL from `VITE_API_BASE` and reuses the session cookie.

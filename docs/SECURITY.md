@@ -56,7 +56,10 @@ The API is dual-mode:
   readable `rr_csrf` double-submit cookie; the check runs in an `onRequest` hook for
   POST/PUT/PATCH/DELETE, so a forged cross-site request fails before reaching a handler.
 
-Cookies are `SameSite=Lax`, `Secure` in production, and the refresh cookie is path-scoped.
+Cookies are `SameSite=Lax` by default (`Secure` in production), and the refresh cookie is
+path-scoped. Split-origin hosting (static client on Vercel/CDN, API elsewhere) may set
+`COOKIE_SAMESITE=none` so browsers send the session cookie cross-origin; `Secure` is then
+forced automatically since browsers reject `SameSite=None` over plain HTTP.
 
 ## 5. Injection
 

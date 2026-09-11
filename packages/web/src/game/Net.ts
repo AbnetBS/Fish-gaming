@@ -40,6 +40,9 @@ export class GameSocket {
   constructor(private readonly handlers: NetHandlers) {}
 
   private url(): string {
+    // Split hosting (Vercel, CDN, ...): derive the socket URL from the API origin.
+    const base = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '');
+    if (base) return `${base.replace(/^http/i, 'ws')}/ws/game`;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${location.host}/ws/game`;
   }

@@ -66,6 +66,8 @@ export interface Env {
   refreshTokenTtlS: number;
   cookieDomain: string;
   cookieSecure: boolean;
+  /** `lax` for same-origin hosting, `none` when the client lives on another origin (Vercel, CDN, ...). */
+  cookieSameSite: 'lax' | 'none';
   startingDemoCoins: number;
   simTickMs: number;
   snapshotMs: number;
@@ -74,6 +76,10 @@ export interface Env {
   rateLimitMax: number;
   rateLimitWindowMs: number;
   bootstrapAdmin: { email: string; username: string; password: string };
+}
+
+function parseSameSite(raw: string | undefined): 'lax' | 'none' {
+  return raw?.trim().toLowerCase() === 'none' ? 'none' : 'lax';
 }
 
 function parseOrigins(raw: string | undefined, fallback: string[]): string[] {
@@ -103,6 +109,7 @@ export function loadEnv(overrides: Partial<Record<string, string>> = {}): Env {
     refreshTokenTtlS: int(get('REFRESH_TOKEN_TTL'), 2_592_000),
     cookieDomain: get('COOKIE_DOMAIN', ''),
     cookieSecure: bool(get('COOKIE_SECURE'), false),
+    cookieSameSite: parseSameSite(get('COOKIE_SAMESITE')),
     startingDemoCoins: int(get('STARTING_DEMO_COINS'), 10_000),
     simTickMs: int(get('SIM_TICK_MS'), 50),
     snapshotMs: int(get('SNAPSHOT_MS'), 50),

@@ -74,6 +74,7 @@ function newSignInNotice(
 
 export function registerAuthRoutes(app: FastifyInstance): void {
   const secure = () => env().cookieSecure;
+  const sameSite = () => env().cookieSameSite;
 
   app.post('/api/auth/register', { config: { rateLimit: { max: 8, timeWindow: '10 minutes' } } }, async (request, reply) => {
     const body = parse(registerBody, request.body, 'body');
@@ -106,7 +107,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const verifyToken = createEmailVerificationToken(db, created.user.id);
     const tokens = await login(db, body.email, body.password, { ip: request.ip, userAgent: request.headers['user-agent'] ?? null });
     const csrf = crypto.randomBytes(24).toString('base64url');
-    setSessionCookies(reply, tokens.tokens, csrf, secure());
+    setSessionCookies(reply, tokens.tokens, csrf, secure(), sameSite());
 
     logger.info('User registered', { userId: created.user.id });
     return reply.code(201).send({
@@ -127,7 +128,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const identifier = body.identifier;
     const result = await login(db, identifier, body.password, { ip: request.ip, userAgent: request.headers['user-agent'] ?? null });
     const csrf = crypto.randomBytes(24).toString('base64url');
-    setSessionCookies(reply, result.tokens, csrf, secure());
+    setSessionCookies(reply, result.tokens, csrf, secure(), sameSite());
     return reply.send({
       user: result.user,
       profile: result.profile,
@@ -150,7 +151,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const result = await refresh(db, token, { ip: request.ip, userAgent: request.headers['user-agent'] ?? null });
     const user = db.get<any>('SELECT * FROM users WHERE id = ?', result.userId)!;
     const csrf = crypto.randomBytes(24).toString('base64url');
-    setSessionCookies(reply, result.tokens, csrf, secure());
+    setSessionCookies(reply, result.tokens, csrf, secure(), sameSite());
     return reply.send({
       user: toPublicUser(user),
       profile: toProfileDto(db.get('SELECT * FROM profiles WHERE user_id = ?', result.userId)),
@@ -170,7 +171,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     // is a separate, explicit action.
     const caller = resolveUser(request);
     if (caller?.sid) db.run('UPDATE refresh_tokens SET revoked_at = ? WHERE id = ?', new Date().toISOString(), caller.sid);
-    clearSessionCookies(reply, secure());
+    clearSessionCookies(reply, secure(), sameSite());
     reply.header('set-cookie', `${CSRF_COOKIE}=; Path=/; Max-Age=0`);
     void ACCESS_COOKIE;
     return reply.send({ ok: true });

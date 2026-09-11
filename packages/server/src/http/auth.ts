@@ -130,8 +130,11 @@ export function setSessionCookies(
   tokens: { accessToken: string; refreshToken: string; accessExpiresIn: number },
   csrf: string,
   secure: boolean,
+  sameSite: 'lax' | 'none' = 'lax',
 ): void {
-  const base = { path: '/', sameSite: 'lax' as const, secure, httpOnly: true };
+  // Browsers reject `SameSite=None` without `Secure`, so split-origin
+  // deployments (static client on Vercel/CDN) must serve the API over HTTPS.
+  const base = { path: '/', sameSite, secure: secure || sameSite === 'none', httpOnly: true };
   reply.header(
     'set-cookie',
     [
@@ -142,8 +145,8 @@ export function setSessionCookies(
   );
 }
 
-export function clearSessionCookies(reply: FastifyReply, secure: boolean): void {
-  const base = { path: '/', sameSite: 'lax' as const, secure, httpOnly: true, maxAge: 0 };
+export function clearSessionCookies(reply: FastifyReply, secure: boolean, sameSite: 'lax' | 'none' = 'lax'): void {
+  const base = { path: '/', sameSite, secure: secure || sameSite === 'none', httpOnly: true, maxAge: 0 };
   reply.header(
     'set-cookie',
     [

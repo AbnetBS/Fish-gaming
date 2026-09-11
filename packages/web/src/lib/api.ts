@@ -47,6 +47,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Build-time API origin, e.g. `https://reef-api.example.com`.
+ *
+ * Empty by default, which keeps same-origin relative URLs (local dev proxy and
+ * the single-node production server). Set `VITE_API_BASE` when the static
+ * client is hosted apart from the API (Vercel, a CDN, ...).
+ */
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '') ?? '';
+
+/** Prefix a same-origin path with the configured API origin. */
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 let accessToken: string | null = null;
 let csrfToken: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
@@ -78,14 +92,14 @@ interface RequestOptions {
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
   const base = path.startsWith('/') ? path : `/${path}`;
-  if (!query) return base;
+  if (!query) return apiUrl(base);
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === '') continue;
     params.set(key, String(value));
   }
   const qs = params.toString();
-  return qs ? `${base}?${qs}` : base;
+  return apiUrl(qs ? `${base}?${qs}` : base);
 }
 
 async function rawFetch(url: string, init: RequestInit): Promise<Response> {
@@ -146,7 +160,7 @@ export function tryRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const response = await rawFetch('/api/auth/refresh', {
+      const response = await rawFetch(buildUrl('/api/auth/refresh'), {
         method: 'POST',
         credentials: 'include',
         headers: { accept: 'application/json' },
@@ -418,6 +432,6 @@ export const api = {
     overview: () => apiFetch<{ demo: AdminStats; liveRooms: any[]; disclaimer: string }>('/api/admin/reports/overview'),
     audit: (params: { page?: number; limit?: number; entity?: string; action?: string }) => apiFetch<{ items: AuditEntry[]; total: number; page: number }>('/api/admin/audit', { query: params }),
     setMaintenance: (enabled: boolean, reason?: string) => apiFetch<{ ok: boolean; maintenance: boolean }>('/api/admin/maintenance', { method: 'POST', body: { enabled, reason } }),
-    exportUrl: (kind: 'rounds' | 'history' | 'transactions') => `/api/admin/reports/export.csv?kind=${kind}`,
+    exportUrl: (kind: 'rounds' | 'history' | 'transactions') => apiUrl(`/api/admin/reports/export.csv?kind=${kind}`),
   },
 };

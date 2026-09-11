@@ -8,6 +8,41 @@
   overflow-x: clip;
 }
 
+/* Shown when the client cannot reach the API (e.g. a static-only preview
+   deploy): the page still renders, but nothing that needs the server works. */
+.preview-banner {
+  position: relative;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+  color: #ffe3ad;
+  background: linear-gradient(180deg, rgba(255, 183, 3, 0.16), rgba(255, 183, 3, 0.08));
+  border-bottom: 1px solid rgba(255, 183, 3, 0.35);
+}
+.preview-banner strong {
+  color: var(--sun);
+}
+.preview-banner .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 10px var(--gold);
+  animation: preview-pulse 2s ease-in-out infinite;
+}
+@keyframes preview-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .ocean-backdrop {
   position: absolute;
   inset: 0;
