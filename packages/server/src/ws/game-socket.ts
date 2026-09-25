@@ -9,6 +9,8 @@ import { isMaintenanceMode } from '../modules/config/service.js';
 import { activeSession, betOptionsFor, joinRoom, listRooms } from '../modules/game/service.js';
 import { readPlayLimits } from '../modules/game/limits.js';
 import type { ClientMessage, ServerMessage } from '@reef/shared';
+import { AppError } from '../lib/errors.js';
+import { arenaRoomIdFor, getTournamentDetail } from '../modules/game/tournaments.js';
 
 /**
  * Real-time gameplay transport.
@@ -154,6 +156,28 @@ export function registerGameSocket(app: FastifyInstance, manager: () => RoundMan
             return;
           }
 
+          case 'joinTournament': {
+            const tournamentId = typeof (data as any).tournamentId === 'string' ? (data as any).tournamentId.slice(0, 64) : '';
+            if (!tournamentId) return send({ type: 'notice', level: 'error', message: 'Invalid tournament.' });
+            try {
+              const detail = getTournamentDetail(getDb(), tournamentId, conn.userId);
+              if (!detail.myEntry) {
+                return send({ type: 'notice', level: 'error', message: 'You do not hold a seat in this tournament.' });
+              }
+              if (detail.status !== 'RUNNING') {
+                return send({
+                  type: 'notice',
+                  level: 'warn',
+                  message: detail.status === 'LOBBY' ? 'The match has not started yet — it begins when the lobby fills.' : 'That tournament has ended.',
+                });
+              }
+              attach(conn, arenaRoomIdFor(getDb(), tournamentId));
+            } catch (err) {
+              send(blockedMessage(conn, err) ?? { type: 'notice', level: 'warn', message: joinFallback(err) });
+            }
+            return;
+          }
+
           case 'fire': {
             const body = data as any;
             const clientRef = typeof body.clientRef === 'string' ? body.clientRef.slice(0, 64) : '';
@@ -248,6 +272,13 @@ export function registerGameSocket(app: FastifyInstance, manager: () => RoundMan
       const room = db.get<any>("SELECT * FROM game_rooms WHERE (id = ? OR key = ?) AND status = 'ACTIVE'", roomIdOrKey, roomIdOrKey);
       if (!room) throw new Error('ROOM_NOT_FOUND');
       if (isMaintenanceMode(db)) throw new Error('MAINTENANCE');
+      // Tournament arenas are private: only a running match admits its entrants.
+      const arenaTny = db.get<{ id: string; status: string }>('SELECT id, status FROM tournaments WHERE arena_room_id = ?', room.id);
+      if (arenaTny) {
+        if (arenaTny.status !== 'RUNNING') throw new AppError(409, 'TOURNAMENT_CLOSED', 'That tournament is not running right now.');
+        const seat = db.get('SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND user_id = ?', arenaTny.id, conn.userId);
+        if (!seat) throw new AppError(403, 'NOT_ENTERED', 'That match is private to its entered players.');
+      }
 
       const mgr = manager();
       let session = activeSession(db, conn.userId);
@@ -271,6 +302,21 @@ export function registerGameSocket(app: FastifyInstance, manager: () => RoundMan
       }
       const { runtime, player, seat } = mgr.attach(conn, room.id);
       conn.roomId = room.id;
+      if (arenaTny) {
+        // Everybody fires the match cannon: adopt it even if the player last
+        // used something else, otherwise every shot would be rejected.
+        const tnyCannon = db.get<{ cannon_key: string }>('SELECT cannon_key FROM tournaments WHERE id = ?', arenaTny.id)?.cannon_key;
+        if (tnyCannon) {
+          conn.cannonKey = tnyCannon;
+          db.run(
+            `UPDATE game_sessions SET cannon_id = (SELECT id FROM cannons WHERE key = ?) WHERE user_id = ? AND status = 'ACTIVE'`,
+            tnyCannon,
+            conn.userId,
+          );
+        }
+      }
+      const tnyLive = mgr.standingsForRoom(room.id);
+      const tnyName = tnyLive ? (db.get<{ name: string }>('SELECT name FROM tournaments WHERE id = ?', tnyLive.tournamentId)?.name ?? 'Tournament') : null;
       conn.lastAngle = player.angle;
       const wallet = getWallet(db, conn.userId);
       conn.lastBalance = wallet.balance;
@@ -300,6 +346,17 @@ export function registerGameSocket(app: FastifyInstance, manager: () => RoundMan
           legal: o.legal,
         })),
         limits: limitsView,
+        tournament: tnyLive
+          ? {
+              tournamentId: tnyLive.tournamentId,
+              name: tnyName ?? 'Tournament',
+              endsAt: tnyLive.endsAt,
+              prizePool: tnyLive.prizePool,
+              myScore: tnyLive.standings.find((s) => s.userId === conn.userId)?.score ?? 0,
+              myRank: tnyLive.standings.find((s) => s.userId === conn.userId)?.rank ?? tnyLive.standings.length,
+              standings: tnyLive.standings,
+            }
+          : undefined,
       });
       mgr.broadcastPlayerJoined(room.id, player);
     };

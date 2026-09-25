@@ -87,6 +87,35 @@ sines for organic drift), `BOSS` (slow crawl plus wide sweep).
 Fish always spawn outside the visible field and are only despawned once they have left it (or
 after a generous grace period), so nothing pops in or out mid-screen.
 
+## Tournaments — entry-fee matches, winner takes the pot
+
+Rooms are open survival-style play. Tournaments are the competitive format: a fixed-size,
+fixed-duration match where the entry fees form a prize pool and the highest score wins it
+minus the operator's rake.
+
+```
+operator creates match (entry fee, 2–8 players, duration, rake %, fixed cannon)
+  → lobby fills; each seat pays the entry fee into the pool (BET debit)
+  → full lobby starts at once (or the lobby timer starts-or-refunds)
+  → arena: free shots, one fixed cannon for everybody, kills score points
+  → time expires → highest score wins pool − rake (WIN credit), rake banked
+```
+
+* **Fair by construction.** The entry fee is the only stake: shots are free inside the arena
+  and every player fires the same cannon (same power, same fire rate), so no wallet buys an
+  edge. Winner = highest score (sum of defeated-fish values); ties break by kills, then
+  fewest shots, then earliest seat.
+* **Operator controls, per tournament.** Entry fee (1–1,000,000 demo coins), min/max players
+  (2–8), match length (60–3600 s), rake (0–90%), match cannon, lobby window. A full lobby's
+  pool/prize/rake split is previewed on the creation form and on every lobby card.
+* **Money safety.** Entry fees, prizes and refunds are ordinary ledger rows (BET/WIN/REFUND)
+  with deterministic idempotency keys, so joining, settling or sweeping twice can never move
+  coins twice. Settlement is one transaction guarded by `status = 'RUNNING'`; the losers'
+  entries stay in the pool and losers keep their scores in history.
+* **Liveness.** The tick loop settles live arenas at match time with a results broadcast, and
+  a sweep starts-or-refunds expired lobbies and settles orphaned matches (e.g. after a
+  restart) from the frozen scores — prizes are never stuck.
+
 ## Economy reading, honestly
 
 With the seeded values a confirmed kill is profitable: a 1-health fish paying 2 for a cost-1

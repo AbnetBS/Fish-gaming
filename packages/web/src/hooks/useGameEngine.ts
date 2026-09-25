@@ -6,7 +6,7 @@ import { apiFetch, ApiError, getAccessToken, tryRefresh } from '../lib/api';
 import { useAuth } from '../state/AuthContext';
 import { useToast } from '../state/toast';
 import type { BetOption, ClientConfig } from '../lib/api';
-import type { ServerMessage } from '@reef/shared';
+import type { ServerMessage, TournamentEntryView, TournamentLiveState } from '@reef/shared';
 
 /**
  * Wires the canvas engine to the socket, the wallet and the configuration.
@@ -21,6 +21,8 @@ export interface UseGameEngineArgs {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   config: ClientConfig | null;
   roomKey: string | null;
+  /** Tournament arena mode: joins the match instead of a room. */
+  tournamentId?: string | null;
   enabled: boolean;
   /** Landing-page preview: local only, no network at all. */
   practiceOnly?: boolean;
@@ -53,6 +55,10 @@ export interface UseGameEngineResult {
   block: PlayBlock | null;
   /** Clears the local notice after the player acknowledges it. */
   dismissBlock: () => void;
+  /** Live match context in tournament mode (null in normal rooms). */
+  tournament: TournamentLiveState | null;
+  /** Final result once the match settles. */
+  tournamentResult: TournamentEndResult | null;
 }
 
 export interface PlayLimitsState {
@@ -69,7 +75,15 @@ export interface PlayBlock {
   until: string | null;
 }
 
-export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnly = false, onBalance, onRound, onReward }: UseGameEngineArgs): UseGameEngineResult {
+export interface TournamentEndResult {
+  tournamentId: string;
+  winnerUsername: string | null;
+  prize: number;
+  rake: number;
+  standings: TournamentEntryView[];
+}
+
+export function useGameEngine({ canvasRef, config, roomKey, tournamentId = null, enabled, practiceOnly = false, onBalance, onRound, onReward }: UseGameEngineArgs): UseGameEngineResult {
   const { applyBalance, user } = useAuth();
   const toast = useToast();
   const engineRef = useRef<Engine | null>(null);
@@ -100,6 +114,8 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
   const [limits, setLimits] = useState<PlayLimitsState | null>(null);
   /** Non-null means the server has stopped this player: no fire, no autoplay. */
   const [block, setBlock] = useState<PlayBlock | null>(null);
+  const [tournament, setTournament] = useState<TournamentLiveState | null>(null);
+  const [tournamentResult, setTournamentResult] = useState<TournamentEndResult | null>(null);
   const blockRef = useRef<PlayBlock | null>(null);
   blockRef.current = block;
   const aimThrottle = useRef(0);
@@ -178,7 +194,43 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
   const handleMessage = useCallback(
     (message: ServerMessage) => {
       const engine = engineRef.current;
+      if (message.type === 'standings') {
+        setTournament((current) =>
+          current && current.tournamentId === message.tournamentId
+            ? {
+                ...current,
+                endsAt: message.endsAt,
+                prizePool: message.prizePool,
+                standings: message.standings,
+                myScore: message.standings.find((s) => s.userId === user?.id)?.score ?? current.myScore,
+                myRank: message.standings.find((s) => s.userId === user?.id)?.rank ?? current.myRank,
+              }
+            : current,
+        );
+        return;
+      }
+      if (message.type === 'tournamentEnd') {
+        setTournamentResult({
+          tournamentId: message.tournamentId,
+          winnerUsername: message.winnerUsername,
+          prize: message.prize,
+          rake: message.rake,
+          standings: message.standings,
+        });
+        // The match is over: stop firing, the arena is about to close.
+        setAutoFireState(false);
+        engine?.setAutoFire(false);
+        pushNotice(
+          'info',
+          message.winnerUsername
+            ? `Tournament over — ${message.winnerUsername} wins ${message.prize} demo coins!`
+            : 'The tournament has ended.',
+        );
+        return;
+      }
       if (message.type === 'joined') {
+        setTournament(message.tournament ?? null);
+        setTournamentResult(null);
         setRoundId(message.roundId);
         setBetOptions(message.betOptions);
         setCannonKey(message.cannonKey);
@@ -244,7 +296,7 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
       }
       return;
     }
-    if (!user || !roomKey) return;
+    if (!user || (!roomKey && !tournamentId)) return;
     const socket = new GameSocket({
       onMessage: handleMessage,
       onState: (state, detail) => {
@@ -256,7 +308,8 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
           engineRef.current?.enablePractice(true);
         }
         if (state === 'open') {
-          socketRef.current?.send({ type: 'join', roomId: roomKey });
+          if (tournamentId) socketRef.current?.send({ type: 'joinTournament', tournamentId });
+          else if (roomKey) socketRef.current?.send({ type: 'join', roomId: roomKey });
         }
       },
       getToken: async () => {
@@ -272,7 +325,7 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
     socketRef.current = socket;
     setLink('connecting');
     socket.connect();
-  }, [config, handleMessage, practiceOnly, pushNotice, roomKey, user]);
+  }, [config, handleMessage, practiceOnly, pushNotice, roomKey, tournamentId, user]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -283,7 +336,7 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
       setLink('idle');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, roomKey, user?.id]);
+  }, [enabled, roomKey, tournamentId, user?.id]);
 
   /* practice-mode defaults when there is no socket */
   useEffect(() => {
@@ -434,5 +487,7 @@ export function useGameEngine({ canvasRef, config, roomKey, enabled, practiceOnl
     limits,
     block,
     dismissBlock: () => setBlock(null),
+    tournament,
+    tournamentResult,
   };
 }

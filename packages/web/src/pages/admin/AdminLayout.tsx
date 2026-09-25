@@ -23,6 +23,7 @@ const NAV: { group: string; items: { to: string; label: string; permission?: str
   {
     group: 'Operations',
     items: [
+      { to: '/admin/tournaments', label: 'Tournaments', permission: 'tournaments:read' },
       { to: '/admin/users', label: 'Users', permission: 'users:read' },
       { to: '/admin/history', label: 'Game history', permission: 'history:read' },
       { to: '/admin/transactions', label: 'Transactions', permission: 'transactions:read' },

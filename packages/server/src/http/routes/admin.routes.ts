@@ -28,6 +28,14 @@ import { computeAdminStats, roundAudit, roundReport } from '../../modules/report
 import { getProfile, listUsers, setAccountStatus, toProfileDto, toPublicUser } from '../../modules/users/service.js';
 import { liftSelfExclusion, readPlayLimits } from '../../modules/game/limits.js';
 import { adminAdjustDemoCoins } from '../../modules/game/service.js';
+import {
+  cancelTournament,
+  createTournament,
+  getTournamentDetail,
+  houseRakeTotal,
+  listAllTournaments,
+  startTournament,
+} from '../../modules/game/tournaments.js';
 import { verifyLedgerIntegrity } from '../../modules/wallet/ledger.js';
 import { revokeAllSessions } from '../../modules/auth/service.js';
 import type { RoundManager } from '../../sim/round-manager.js';
@@ -336,6 +344,65 @@ export function registerAdminRoutes(app: FastifyInstance, rounds: () => RoundMan
     const room = updateRoom(context, params.id, body);
     if (body.status === 'INACTIVE') rounds().closeRoomRounds(params.id);
     return { ok: true, room, config: configMeta(context.db) };
+  });
+
+  /* -------------------------------- tournaments -------------------------------- */
+
+  app.get('/api/admin/tournaments', async (request) => {
+    requireAdmin(request, 'tournaments:read');
+    const query = parse(
+      z.object({ status: z.enum(['ALL', 'LOBBY', 'RUNNING', 'SETTLED', 'CANCELLED']).optional() }).strict(),
+      request.query,
+      'query',
+    );
+    return { items: listAllTournaments(getDb(), query.status ?? 'ALL'), house: houseRakeTotal(getDb()) };
+  });
+
+  app.post('/api/admin/tournaments', async (request, reply) => {
+    const context = ctx(request, 'tournaments:write');
+    const body = parse(
+      z
+        .object({
+          name: z.string().trim().min(3).max(48),
+          entryFee: z.number().int().min(1).max(1_000_000),
+          minPlayers: z.number().int().min(2).max(8),
+          maxPlayers: z.number().int().min(2).max(8),
+          durationS: z.number().int().min(60).max(3600),
+          rakePct: z.number().int().min(0).max(90),
+          cannonKey: z.string().trim().min(1).max(32),
+          lobbyMinutes: z.number().int().min(1).max(180),
+          spawnRateMultiplier: z.number().min(0.5).max(3).optional(),
+        })
+        .strict(),
+      request.body,
+      'body',
+    );
+    const tournament = createTournament(context.db, { id: context.adminId, username: context.adminUsername, ip: context.ip }, body);
+    return reply.code(201).send({ tournament });
+  });
+
+  app.get('/api/admin/tournaments/:id', async (request) => {
+    requireAdmin(request, 'tournaments:read');
+    const params = parse(z.object({ id: z.string().trim().min(1).max(64) }), request.params, 'params');
+    return getTournamentDetail(getDb(), params.id);
+  });
+
+  app.post('/api/admin/tournaments/:id/start', async (request) => {
+    const context = ctx(request, 'tournaments:write');
+    const params = parse(z.object({ id: z.string().trim().min(1).max(64) }), request.params, 'params');
+    return { tournament: startTournament(context.db, params.id, { admin: { id: context.adminId, username: context.adminUsername, ip: context.ip } }) };
+  });
+
+  app.post('/api/admin/tournaments/:id/cancel', async (request) => {
+    const context = ctx(request, 'tournaments:write');
+    const params = parse(z.object({ id: z.string().trim().min(1).max(64) }), request.params, 'params');
+    const body = parse(z.object({ reason: z.string().trim().max(240).optional() }).strict(), request.body ?? {}, 'body');
+    const result = cancelTournament(
+      context.db,
+      params.id,
+      { id: context.adminId, username: context.adminUsername, ip: context.ip, reason: body.reason },
+    );
+    return { ok: true, ...result };
   });
 
   /* ------------------------------ game settings ------------------------------ */

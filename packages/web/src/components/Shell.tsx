@@ -9,6 +9,7 @@ import { BrandMark } from './BrandMark';
 const LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/play', label: 'Play' },
+  { to: '/tournaments', label: 'Tournaments' },
   { to: '/history', label: 'History' },
   { to: '/wallet', label: 'Wallet' },
   { to: '/leaderboard', label: 'Leaderboard' },

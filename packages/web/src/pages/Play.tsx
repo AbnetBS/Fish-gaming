@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useGameEngine } from '../hooks/useGameEngine';
+import { useGameEngine, type TournamentEndResult } from '../hooks/useGameEngine';
 import { usePlatform } from '../state/PlatformContext';
 import { useAuth } from '../state/AuthContext';
 import { api } from '../lib/api';
@@ -27,7 +27,10 @@ interface FeedItem {
 }
 
 export function Play(): JSX.Element {
-  const { roomKey = '' } = useParams();
+  const params = useParams();
+  const roomKey = params.roomKey ?? '';
+  const tournamentId = (params as { tournamentId?: string }).tournamentId ?? null;
+  const isTournament = tournamentId !== null;
   const navigate = useNavigate();
   const { config, meta, reload } = usePlatform();
   const { wallet, user, applyBalance } = useAuth();
@@ -47,6 +50,25 @@ export function Play(): JSX.Element {
   });
   const [pointerDown, setPointerDown] = useState(false);
   const [landscapeHint, setLandscapeHint] = useState(false);
+  const [tnyMeta, setTnyMeta] = useState<{ rakePct: number; name: string } | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!isTournament || !tournamentId) return;
+    let cancelled = false;
+    api
+      .tournament(tournamentId)
+      .then((detail) => {
+        if (!cancelled) setTnyMeta({ rakePct: detail.rakePct, name: detail.name });
+      })
+      .catch(() => undefined);
+    const timer = window.setInterval(() => setNowTick(Date.now()), 500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isTournament, tournamentId]);
+
 
   const handleReward = useCallback((reward: { amount: number; fish: string }) => {
     setFeed((current) => [{ id: Math.random(), amount: reward.amount, fish: reward.fish, at: Date.now() }, ...current].slice(0, 5));
@@ -55,11 +77,16 @@ export function Play(): JSX.Element {
   const engine = useGameEngine({
     canvasRef,
     config,
-    roomKey: roomKey || null,
+    roomKey: isTournament ? null : roomKey || null,
+    tournamentId,
     enabled: true,
     onBalance: (balance) => applyBalance(balance),
     onReward: handleReward,
   });
+
+  const timeLeftMs = engine.tournament ? Math.max(0, Date.parse(engine.tournament.endsAt) - nowTick) : 0;
+  const timeLeftLabel = `${Math.floor(timeLeftMs / 60000)}:${String(Math.floor((timeLeftMs % 60000) / 1000)).padStart(2, '0')}`;
+  const winnerPrizeNow = engine.tournament ? Math.floor((engine.tournament.prizePool * (100 - (tnyMeta?.rakePct ?? 0))) / 100) : 0;
 
   const cannon = useMemo(() => engine.betOptions.find((option) => option.key === engine.cannonKey) ?? engine.betOptions[0], [engine.betOptions, engine.cannonKey]);
   const legalOptions = engine.betOptions.filter((option) => option.legal);
@@ -150,15 +177,17 @@ export function Play(): JSX.Element {
         setConfirmExit(true);
         return;
       }
-      if (event.key === '+') stepBet(1);
-      if (event.key === '-') stepBet(-1);
-      const index = Number.parseInt(event.key, 10);
-      if (!Number.isNaN(index) && legalOptions[index - 1]) engine.setCamera(legalOptions[index - 1]!.key);
+      if (!isTournament) {
+        if (event.key === '+') stepBet(1);
+        if (event.key === '-') stepBet(-1);
+        const index = Number.parseInt(event.key, 10);
+        if (!Number.isNaN(index) && legalOptions[index - 1]) engine.setCamera(legalOptions[index - 1]!.key);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, autoFireOn, legalOptions]);
+  }, [engine, autoFireOn, legalOptions, isTournament]);
 
   const stepBet = (direction: 1 | -1): void => {
     const options = legalOptions;
@@ -179,8 +208,8 @@ export function Play(): JSX.Element {
     } catch {
       /* the socket detach already ends the session */
     }
-    navigate('/dashboard');
-  }, [navigate]);
+    navigate(isTournament ? '/tournaments' : '/dashboard');
+  }, [navigate, isTournament]);
 
   const linkLabel = engine.practice
     ? 'PRACTICE'
@@ -191,24 +220,46 @@ export function Play(): JSX.Element {
         : 'OFFLINE';
 
   return (
-    <div className="game-screen" data-practice={engine.practice}>
+    <div className="game-screen" data-practice={engine.practice} data-tournament={isTournament}>
       <div className="game-topbar">
         <div className="hud-chip" data-tone="gold">
           <span className="k">Demo coins</span>
           <span className="v">{formatCoins(wallet?.balance ?? 0)}</span>
         </div>
         <div className="hud-chip" data-tone="cyan">
-          <span className="k">Room</span>
+          <span className="k">{isTournament ? 'Tournament' : 'Room'}</span>
           <span className="v" style={{ fontSize: '0.9rem' }}>
-            {config?.rooms.find((room) => room.key === roomKey)?.name ?? roomKey}
+            {isTournament ? (engine.tournament?.name ?? tnyMeta?.name ?? 'Tournament') : (config?.rooms.find((room) => room.key === roomKey)?.name ?? roomKey)}
           </span>
         </div>
-        <div className="hud-chip">
-          <span className="k">Bet / shot</span>
-          <span className="v" style={{ color: '#ffd166' }}>
-            {cannon?.shotCost ?? '—'}
-          </span>
-        </div>
+        {isTournament ? (
+          <>
+            <div className="hud-chip" data-tone="gold">
+              <span className="k">My score</span>
+              <span className="v">
+                {formatCoins(engine.tournament?.myScore ?? 0)}
+                <span className="tiny dim"> #{engine.tournament?.myRank ?? '—'}</span>
+              </span>
+            </div>
+            <div className="hud-chip">
+              <span className="k">Winner prize</span>
+              <span className="v" style={{ color: '#ffd166' }}>
+                {formatCoins(winnerPrizeNow)}
+              </span>
+            </div>
+            <div className="hud-chip" data-tone={timeLeftMs < 30000 ? 'warn' : 'cyan'}>
+              <span className="k">Time left</span>
+              <span className="v num">{timeLeftLabel}</span>
+            </div>
+          </>
+        ) : (
+          <div className="hud-chip">
+            <span className="k">Bet / shot</span>
+            <span className="v" style={{ color: '#ffd166' }}>
+              {cannon?.shotCost ?? '—'}
+            </span>
+          </div>
+        )}
         {engine.limits && engine.limits.limitMin > 0 ? (
           <div className="hud-chip" data-tone={engine.limits.minutesRemaining !== null && engine.limits.minutesRemaining <= 2 ? 'gold' : 'cyan'}>
             <span className="k">Play time today</span>
@@ -223,13 +274,15 @@ export function Play(): JSX.Element {
             {cannon?.name ?? '—'} · P{cannon?.power ?? 0}
           </span>
         </div>
-        <div className="hud-chip hide-mobile" data-tone={session.rewarded - session.wagered >= 0 ? 'green' : 'warn'}>
-          <span className="k">Session</span>
-          <span className="v">
-            {session.rewarded - session.wagered >= 0 ? '+' : '−'}
-            {formatCoins(Math.abs(session.rewarded - session.wagered))}
-          </span>
-        </div>
+        {!isTournament ? (
+          <div className="hud-chip hide-mobile" data-tone={session.rewarded - session.wagered >= 0 ? 'green' : 'warn'}>
+            <span className="k">Session</span>
+            <span className="v">
+              {session.rewarded - session.wagered >= 0 ? '+' : '−'}
+              {formatCoins(Math.abs(session.rewarded - session.wagered))}
+            </span>
+          </div>
+        ) : null}
 
         <div className="grow" />
 
@@ -260,6 +313,27 @@ export function Play(): JSX.Element {
           <div className="combo-meter">
             <div className="n">×{engine.stats.combo}</div>
             <div className="l">chain (visual only)</div>
+          </div>
+        ) : null}
+
+        {isTournament && engine.tournament ? (
+          <div className="tournament-standings" aria-live="polite">
+            <div className="head">
+              <span>🏆 Standings</span>
+              <span className="time num">{timeLeftLabel}</span>
+            </div>
+            <ol>
+              {engine.tournament.standings.slice(0, 8).map((entry) => (
+                <li key={entry.userId} data-me={entry.userId === user?.id}>
+                  <span className="rank num">#{entry.rank}</span>
+                  <span className="name">{entry.username}</span>
+                  <span className="score num">{formatCoins(entry.score)}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="pot tiny">
+              Pool {formatCoins(engine.tournament.prizePool)} · winner takes {formatCoins(winnerPrizeNow)}
+            </div>
           </div>
         ) : null}
 
@@ -424,6 +498,21 @@ export function Play(): JSX.Element {
         </div>
       ) : null}
 
+      <Modal
+        open={isTournament && !!engine.tournamentResult}
+        title="Tournament results"
+        onClose={() => navigate('/tournaments')}
+        footer={
+          <div className="row" style={{ gap: '0.5rem', justifyContent: 'flex-end' }}>
+            <Button variant="primary" size="sm" onClick={() => navigate('/tournaments')}>
+              Back to tournaments
+            </Button>
+          </div>
+        }
+      >
+        {engine.tournamentResult ? <TournamentResults result={engine.tournamentResult} username={user?.username} /> : null}
+      </Modal>
+
       <Modal open={settingsOpen} title="Game settings" onClose={() => setSettingsOpen(false)}>
         <div className="col" style={{ gap: '0.9rem' }}>
           <div className="row-between">
@@ -526,23 +615,96 @@ export function Play(): JSX.Element {
             <div className="k">Shots</div>
             <div className="v">{formatCoins(session.shots)}</div>
           </div>
-          <div className="stat-tile">
-            <div className="k">Wagered</div>
-            <div className="v" style={{ color: 'var(--coral)' }}>
-              {formatCoins(session.wagered)}
-            </div>
-          </div>
-          <div className="stat-tile">
-            <div className="k">Rewarded</div>
-            <div className="v" style={{ color: 'var(--aqua)' }}>
-              {formatCoins(session.rewarded)}
-            </div>
-          </div>
+          {isTournament ? (
+            <>
+              <div className="stat-tile">
+                <div className="k">Score</div>
+                <div className="v" style={{ color: 'var(--aqua)' }}>
+                  {formatCoins(engine.tournament?.myScore ?? 0)}
+                </div>
+              </div>
+              <div className="stat-tile">
+                <div className="k">Rank</div>
+                <div className="v">#{engine.tournament?.myRank ?? '—'}</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="stat-tile">
+                <div className="k">Wagered</div>
+                <div className="v" style={{ color: 'var(--coral)' }}>
+                  {formatCoins(session.wagered)}
+                </div>
+              </div>
+              <div className="stat-tile">
+                <div className="k">Rewarded</div>
+                <div className="v" style={{ color: 'var(--aqua)' }}>
+                  {formatCoins(session.rewarded)}
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <p className="small muted" style={{ marginTop: '0.9rem' }}>
-          {user?.username}, the reef keeps running for anyone else in the room. Leaving does not refund an in-progress bet.
+          {isTournament
+            ? `${user?.username}, your score is kept and you can re-enter before time runs out. Leaving never refunds the entry fee.`
+            : `${user?.username}, the reef keeps running for anyone else in the room. Leaving does not refund an in-progress bet.`}
         </p>
       </Modal>
+    </div>
+  );
+}
+
+function TournamentResults({ result, username }: { result: TournamentEndResult; username: string | undefined }): JSX.Element {
+  const mine = result.standings.find((entry) => entry.username === username);
+  const won = mine != null && result.winnerUsername === username;
+  return (
+    <div className="col" style={{ gap: '0.9rem' }}>
+      <div className={`notice-box ${won ? 'info' : ''} small`} style={{ textAlign: 'center' }}>
+        {won ? (
+          <>
+            🏆 <strong>You won {formatCoins(result.prize)} demo coins!</strong>
+          </>
+        ) : (
+          <>
+            Winner <strong>{result.winnerUsername ?? '—'}</strong> takes <strong>{formatCoins(result.prize)} demo coins</strong>
+            {mine ? (
+              <>
+                {' '}— you finished <strong>#{mine.rank}</strong> with {formatCoins(mine.score)} points.
+              </>
+            ) : null}
+          </>
+        )}
+        <div className="tiny dim" style={{ marginTop: '0.3rem' }}>
+          Operator rake {formatCoins(result.rake)} demo coins.
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Player</th>
+              <th className="num">Score</th>
+              <th className="num">Kills</th>
+              <th className="num">Prize</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.standings.map((entry) => (
+              <tr key={entry.userId} style={entry.username === username ? { background: 'rgba(36, 215, 255, 0.08)' } : undefined}>
+                <td className="num">{entry.rank}</td>
+                <td>{entry.username}</td>
+                <td className="num">{formatCoins(entry.score)}</td>
+                <td className="num">{entry.kills}</td>
+                <td className="num" style={{ color: entry.prize > 0 ? 'var(--aqua)' : undefined }}>
+                  {entry.prize > 0 ? `+${formatCoins(entry.prize)}` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

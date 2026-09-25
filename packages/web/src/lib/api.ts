@@ -233,6 +233,8 @@ import type {
   LeaderboardWindow,
   PublicUser,
   RoomSummary,
+  TournamentDetail,
+  TournamentSummary,
   Wallet,
   WalletTransaction,
 } from '@reef/shared';
@@ -387,6 +389,20 @@ export const api = {
   history: (params: { page?: number; limit?: number; roomId?: string }) =>
     apiFetch<{ items: GameHistoryEntry[]; total: number; page: number; pageSize: number }>('/api/history', { query: params }),
   gameSessions: () => apiFetch<{ items: SessionSummary[] }>('/api/sessions'),
+
+  tournaments: () => apiFetch<{ items: TournamentSummary[] }>('/api/tournaments'),
+  myTournaments: () => apiFetch<{ items: TournamentSummary[] }>('/api/tournaments/mine'),
+  tournament: (id: string) => apiFetch<TournamentDetail>(`/api/tournaments/${encodeURIComponent(id)}`),
+  joinTournament: (id: string) =>
+    apiFetch<{ tournament: TournamentDetail; balance: number; started: boolean; wallet: Wallet }>(
+      `/api/tournaments/${encodeURIComponent(id)}/join`,
+      { method: 'POST', body: {} },
+    ),
+  leaveTournament: (id: string) =>
+    apiFetch<{ ok: boolean; refunded: number; balance: number; wallet: Wallet }>(
+      `/api/tournaments/${encodeURIComponent(id)}/leave`,
+      { method: 'POST', body: {} },
+    ),
   leaderboard: (window: LeaderboardWindow, limit = 20) =>
     apiFetch<{ window: LeaderboardWindow; items: LeaderboardEntry[]; me: { rank: number | null; earned: number } | null }>(`/api/leaderboard/${window}`),
 
@@ -433,5 +449,30 @@ export const api = {
     audit: (params: { page?: number; limit?: number; entity?: string; action?: string }) => apiFetch<{ items: AuditEntry[]; total: number; page: number }>('/api/admin/audit', { query: params }),
     setMaintenance: (enabled: boolean, reason?: string) => apiFetch<{ ok: boolean; maintenance: boolean }>('/api/admin/maintenance', { method: 'POST', body: { enabled, reason } }),
     exportUrl: (kind: 'rounds' | 'history' | 'transactions') => apiUrl(`/api/admin/reports/export.csv?kind=${kind}`),
+
+    tournaments: (status?: string) =>
+      apiFetch<{ items: TournamentSummary[]; house: { settled: number; rake: number; houseBalance: number } }>(
+        '/api/admin/tournaments',
+        { query: status ? { status } : undefined },
+      ),
+    tournament: (id: string) => apiFetch<TournamentDetail>(`/api/admin/tournaments/${encodeURIComponent(id)}`),
+    createTournament: (body: {
+      name: string;
+      entryFee: number;
+      minPlayers: number;
+      maxPlayers: number;
+      durationS: number;
+      rakePct: number;
+      cannonKey: string;
+      lobbyMinutes: number;
+      spawnRateMultiplier?: number;
+    }) => apiFetch<{ tournament: TournamentSummary }>('/api/admin/tournaments', { method: 'POST', body }),
+    startTournament: (id: string) =>
+      apiFetch<{ tournament: TournamentSummary }>(`/api/admin/tournaments/${encodeURIComponent(id)}/start`, { method: 'POST', body: {} }),
+    cancelTournament: (id: string, reason?: string) =>
+      apiFetch<{ ok: boolean; refunded: number; players: number }>(`/api/admin/tournaments/${encodeURIComponent(id)}/cancel`, {
+        method: 'POST',
+        body: { reason },
+      }),
   },
 };

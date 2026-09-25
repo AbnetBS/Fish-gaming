@@ -582,3 +582,108 @@
   color: #ded1ff;
   border-color: rgba(157, 123, 255, 0.5);
 }
+
+/* ==========================================================================
+   Tournament mode
+   ========================================================================== */
+
+/* Fixed cannon: the rail and bet stepper have nothing to do in an arena. */
+.game-screen[data-tournament='true'] .cannon-rail,
+.game-screen[data-tournament='true'] .bet-stepper {
+  display: none;
+}
+
+.tournament-standings {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 12;
+  width: min(300px, 44vw);
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--r-md, 12px);
+  background: rgba(3, 16, 26, 0.82);
+  border: 1px solid rgba(255, 183, 3, 0.35);
+  backdrop-filter: blur(8px);
+  font-size: 0.8rem;
+}
+
+.tournament-standings .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 800;
+  color: var(--sun);
+  margin-bottom: 0.45rem;
+}
+
+.tournament-standings .head .time {
+  color: var(--foam);
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-standings ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 38vh;
+  overflow: hidden auto;
+}
+
+.tournament-standings li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.18rem 0.4rem;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.tournament-standings li[data-me='true'] {
+  background: rgba(36, 215, 255, 0.14);
+  color: var(--foam);
+  font-weight: 700;
+}
+
+.tournament-standings .rank {
+  width: 2ch;
+  color: var(--dim);
+}
+
+.tournament-standings li[data-me='true'] .rank {
+  color: var(--cyan);
+}
+
+.tournament-standings .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tournament-standings .score {
+  color: var(--sun);
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-standings .pot {
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+}
+
+@media (max-width: 760px) {
+  .tournament-standings {
+    width: min(240px, 52vw);
+    font-size: 0.72rem;
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+  .tournament-standings ol {
+    max-height: 26vh;
+  }
+}

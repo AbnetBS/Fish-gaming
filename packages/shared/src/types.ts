@@ -302,6 +302,53 @@ export interface AdminStats {
 }
 
 /* ------------------------------------------------------------------ *
+ * Tournaments (entry-fee matches: winner takes the pot minus operator rake)
+ * ------------------------------------------------------------------ */
+
+export type TournamentStatus = 'LOBBY' | 'RUNNING' | 'SETTLED' | 'CANCELLED';
+
+export interface TournamentEntryView {
+  userId: string;
+  username: string;
+  avatarSeed: string;
+  score: number;
+  kills: number;
+  shots: number;
+  prize: number;
+  rank: number | null;
+  joinedAt: string;
+  me: boolean;
+}
+
+export interface TournamentSummary {
+  id: string;
+  name: string;
+  status: TournamentStatus;
+  entryFee: number;
+  minPlayers: number;
+  maxPlayers: number;
+  seatsTaken: number;
+  durationS: number;
+  /** Operator rake in whole percent (0-90). */
+  rakePct: number;
+  prizePool: number;
+  cannonKey: string;
+  cannonName: string;
+  lobbyEndsAt: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  winnerUsername: string | null;
+  /** The caller's seat, when they hold one. */
+  myEntry: TournamentEntryView | null;
+}
+
+export interface TournamentDetail extends TournamentSummary {
+  standings: TournamentEntryView[];
+  rakeAmount: number;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------ *
  * API envelopes
  * ------------------------------------------------------------------ */
 

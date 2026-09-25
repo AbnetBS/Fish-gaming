@@ -2,6 +2,13 @@ import { uid } from '../lib/ids.js';
 import { logger } from '../lib/logger.js';
 import { getActiveConfiguration, getConfigurationVersion } from '../modules/config/service.js';
 import { closeActiveRound, ensureActiveRound } from '../modules/game/round.js';
+import {
+  recordTournamentKill,
+  recordTournamentShot,
+  settleTournament,
+  standingsFor,
+  sweepTournaments,
+} from '../modules/game/tournaments.js';
 import { assertPlayAllowed, playDeadlineFor, readPlayLimits } from '../modules/game/limits.js';
 import { RoomSimulation, type SimPlayer } from './room-simulation.js';
 import type { Database } from '../db/index.js';
@@ -64,6 +71,10 @@ interface RoomRuntime {
   /** Guards the player-protection sweep so it runs at most every 2 s. */
   lastLimitSweepAt: number;
   totals: { shots: number; wagered: number; rewarded: number };
+  /** Set when this runtime is a tournament arena (free shots + point scoring). */
+  tournamentId: string | null;
+  /** Frozen match end (epoch ms); null for normal rooms. */
+  tournamentEndsAtMs: number | null;
 }
 
 interface EventRow {
@@ -198,6 +209,8 @@ export class RoundManager {
       roomId: room.id,
       roomKey: room.key,
       roundId: round.roundId,
+      tournamentId: null,
+      tournamentEndsAtMs: null,
       config,
       sim: null as unknown as RoomSimulation,
       members: new Set(),
@@ -216,6 +229,19 @@ export class RoundManager {
           },
     };
 
+    // Tournament arenas carry their match id so the shot/reward paths switch to
+    // free shots + point scoring. The lookup is by arena room, so normal rooms
+    // always resolve to null and behave exactly as before.
+    const liveTny = db.get<{ id: string; ends_at: string }>(
+      `SELECT id, ends_at FROM tournaments WHERE arena_room_id = ? AND status = 'RUNNING'`,
+      room.id,
+    );
+    if (liveTny) {
+      runtime.tournamentId = liveTny.id;
+      runtime.tournamentEndsAtMs = Date.parse(liveTny.ends_at) || null;
+      logger.info('Tournament arena opened', { tournament: liveTny.id, roundId: runtime.roundId });
+    }
+
     const hooks = {
       reward: (args: { playerId: string; amount: number; shotId: string; fishKey: string; roundId: string }) =>
         this.creditReward(runtime, args),
@@ -232,6 +258,7 @@ export class RoundManager {
       config,
       seed: runtime.seed,
       spawnRateMultiplier: room.spawn_rate_multiplier ?? 1,
+      seats: Math.min(Math.max(room.max_players ?? 4, 1), 32),
       allowedFishIds: parseJson<string[]>(room.fish_pool, []),
       hooks,
       clock: this.opts.clock,
@@ -249,6 +276,15 @@ export class RoundManager {
     // socket that skips /api/game/join gets the same answer.
     assertPlayAllowed(this.opts.db, connection.userId, this.nowMs());
     const runtime = this.ensureRoom(roomId);
+    // Tournament arenas are private: only seated entrants may attach.
+    if (runtime.tournamentId) {
+      const seat = this.opts.db.get(
+        'SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND user_id = ?',
+        runtime.tournamentId,
+        connection.userId,
+      );
+      if (!seat) throw new AppError(403, 'NOT_ENTERED', 'That match is private to its entered players.');
+    }
     const capacity = this.capacityFor(roomId);
     if (!runtime.members.has(connection) && runtime.members.size >= capacity) {
       throw new AppError(409, 'ROOM_FULL', 'Room is full. Please try another room.');
@@ -393,7 +429,14 @@ export class RoundManager {
         logger.error('Simulation tick failed', { room: runtime.roomKey, err: String(err) });
       }
 
-      if (now - runtime.startedAt >= runtime.roundDurationMs) {
+      // Tournament arenas end terminally at match time — they never roll over
+      // into a new round, because an arena lives for exactly one match.
+      if (runtime.tournamentId && now >= (runtime.tournamentEndsAtMs ?? Number.MAX_SAFE_INTEGER)) {
+        this.endTournamentRuntime(runtime);
+        continue;
+      }
+
+      if (!runtime.tournamentId && now - runtime.startedAt >= runtime.roundDurationMs) {
         this.rollover(runtime);
         continue;
       }
@@ -404,6 +447,18 @@ export class RoundManager {
       }
       this.sweepLimits(runtime, now);
       if (runtime.eventBuffer.length) this.flushEvents(runtime);
+    }
+    // Lobby expiry + orphan settlement (e.g. after a restart) run here so no
+    // background worker is needed; throttled to once every few seconds.
+    if (now - this.lastTournamentSweepAt >= 5000) {
+      this.lastTournamentSweepAt = now;
+      try {
+        const live = new Set<string>();
+        for (const r of this.rooms.values()) if (r.tournamentId) live.add(r.tournamentId);
+        sweepTournaments(this.opts.db, live);
+      } catch (err) {
+        logger.error('Tournament sweep failed', { err: String(err) });
+      }
     }
   }
 
@@ -437,6 +492,41 @@ export class RoundManager {
       }
     }
     if (runtime.members.size === 0) runtime.lastActivityAt = now;
+  }
+
+  /** Push the live leaderboard to every spectator of a tournament arena. */
+  private broadcastStandings(runtime: RoomRuntime): void {
+    if (!runtime.tournamentId) return;
+    const db = this.opts.db;
+    const row = db.get<{ ends_at: string; prize_pool: number }>(
+      'SELECT ends_at, prize_pool FROM tournaments WHERE id = ?',
+      runtime.tournamentId,
+    );
+    if (!row) return;
+    this.broadcast(runtime, {
+      type: 'standings',
+      tournamentId: runtime.tournamentId,
+      endsAt: row.ends_at,
+      prizePool: row.prize_pool,
+      standings: standingsFor(db, runtime.tournamentId),
+    });
+  }
+
+  /** Standings snapshot for the join path (so a player sees scores immediately). */
+  standingsForRoom(roomId: string): { tournamentId: string; endsAt: string; prizePool: number; standings: ReturnType<typeof standingsFor> } | null {
+    const runtime = this.rooms.get(roomId);
+    if (!runtime?.tournamentId) return null;
+    const row = this.opts.db.get<{ ends_at: string; prize_pool: number }>(
+      'SELECT ends_at, prize_pool FROM tournaments WHERE id = ?',
+      runtime.tournamentId,
+    );
+    if (!row) return null;
+    return {
+      tournamentId: runtime.tournamentId,
+      endsAt: row.ends_at,
+      prizePool: row.prize_pool,
+      standings: standingsFor(this.opts.db, runtime.tournamentId),
+    };
   }
 
   private broadcastDelta(runtime: RoomRuntime): void {
@@ -538,13 +628,31 @@ export class RoundManager {
     }
     if (isMaintenance(db)) return { ok: false, code: 'MAINTENANCE', message: 'The game is under maintenance. Please try again shortly.' };
 
+    // Tournament arenas: the match must be live, the shooter must hold a seat,
+    // and everybody fires the same fixed cannon (same power, same fire rate —
+    // the entry fee is the only stake, so no wallet buys an edge).
+    const tnyId = runtime.tournamentId;
+    let tnyCannonKey: string | null = null;
+    if (tnyId) {
+      const tny = db.get<{ status: string; cannon_key: string }>('SELECT status, cannon_key FROM tournaments WHERE id = ?', tnyId);
+      if (!tny || tny.status !== 'RUNNING') {
+        return { ok: false, code: 'GAME_UNAVAILABLE', message: 'That tournament has ended.' };
+      }
+      const seat = db.get('SELECT 1 FROM tournament_entries WHERE tournament_id = ? AND user_id = ?', tnyId, connection.userId);
+      if (!seat) return { ok: false, code: 'NOT_ENTERED', message: 'You do not hold a seat in this tournament.' };
+      tnyCannonKey = tny.cannon_key;
+    }
+
     // Cannon comes from the round's pinned configuration — never from the client.
     const cannon = runtime.config.cannons.find((c) => c.key === input.cannonKey);
     if (!cannon || !cannon.enabled) {
       return { ok: false, code: 'WEAPON_UNAVAILABLE', message: 'That cannon is not available in this room.' };
     }
-    const cost = cannon.shotCost;
-    if (cost < room.min_bet || cost > room.max_bet) {
+    if (tnyCannonKey && input.cannonKey !== tnyCannonKey) {
+      return { ok: false, code: 'WEAPON_UNAVAILABLE', message: 'This tournament fixes one cannon for every player.' };
+    }
+    const cost = tnyId ? 0 : cannon.shotCost;
+    if (!tnyId && (cost < room.min_bet || cost > room.max_bet)) {
       return {
         ok: false,
         code: 'BET_OUT_OF_RANGE',
@@ -600,7 +708,11 @@ export class RoundManager {
         if (!wallet) return { kind: 'no_wallet' as const };
         if (wallet.balance < cost) return { kind: 'insufficient' as const, balance: wallet.balance };
 
-        const ledger = applyBet(db, { userId: connection.userId, cost, shotId, roundId: runtime.roundId });
+        // Tournament shots are free but still pass through the same replay
+        // guard, session binding and cadence checks as paid shots.
+        const balanceAfter = tnyId
+          ? (db.get<{ balance: number }>('SELECT balance FROM wallets WHERE user_id = ?', connection.userId)?.balance ?? 0)
+          : applyBet(db, { userId: connection.userId, cost, shotId, roundId: runtime.roundId }).balanceAfter;
         const timestamp = new Date().toISOString();
         db.run(
           `INSERT INTO player_shots (id, session_id, round_id, room_id, user_id, cannon_id, client_ref, cost, damage, angle, origin_x, origin_y, result, reward, created_at)
@@ -621,9 +733,10 @@ export class RoundManager {
         );
         db.run('UPDATE game_rounds SET total_shots = total_shots + 1, total_wagered = total_wagered + ? WHERE id = ?', cost, runtime.roundId);
         db.run('UPDATE game_sessions SET total_wagered = total_wagered + ?, cannon_id = ? WHERE id = ?', cost, cannon.id, session.id);
+        if (tnyId) recordTournamentShot(db, tnyId, connection.userId);
         runtime.totals.shots += 1;
         runtime.totals.wagered += cost;
-        return { kind: 'ok' as const, balance: ledger.balanceAfter, sessionId: session.id };
+        return { kind: 'ok' as const, balance: balanceAfter, sessionId: session.id };
       });
 
       if (outcome.kind === 'replay') {
@@ -720,12 +833,14 @@ export class RoundManager {
   }
 
   private lastFireAt = new Map<string, number>();
+  private lastTournamentSweepAt = 0;
 
   setCannon(connection: ClientConnection, cannonKey: string): { ok: boolean; message?: string } {
     if (!connection.roomId) return { ok: false, message: 'You are not in a game room.' };
     const runtime = this.rooms.get(connection.roomId);
     if (!runtime) return { ok: false, message: 'Game unavailable.' };
     const room = this.opts.db.get<any>('SELECT * FROM game_rooms WHERE id = ?', runtime.roomId);
+    if (runtime.tournamentId) return { ok: false, message: 'The tournament cannon is fixed for every player.' };
     const cannon = runtime.config.cannons.find((c) => c.key === cannonKey);
     if (!cannon || !cannon.enabled) return { ok: false, message: 'That cannon is not available.' };
     if (room && (cannon.shotCost < room.min_bet || cannon.shotCost > room.max_bet)) {
@@ -754,6 +869,18 @@ export class RoundManager {
   ): { ok: boolean; balance?: number; message?: string } {
     if (!Number.isInteger(args.amount) || args.amount <= 0) return { ok: false, message: 'invalid_amount' };
     const db = this.opts.db;
+    // Tournament arenas score points instead of paying the wallet.
+    if (runtime.tournamentId) {
+      const balance = db.transaction(() => {
+        recordTournamentKill(db, runtime.tournamentId!, args.playerId, args.amount);
+        return db.scalar<number>('SELECT balance FROM wallets WHERE user_id = ?', args.playerId) ?? 0;
+      });
+      runtime.sim.addReward(args.playerId, args.amount);
+      this.broadcastStandings(runtime);
+      const owner = [...runtime.members].find((c) => c.userId === args.playerId);
+      if (owner) owner.lastBalance = balance;
+      return { ok: true, balance };
+    }
     const idempotencyKey = `win:${args.shotId}:${args.fishKey}`;
     try {
       const result = db.transaction(() => {
@@ -880,8 +1007,38 @@ export class RoundManager {
 
   /* ---------------------------------- rounds ---------------------------------- */
 
+  /**
+   * Terminal end of a tournament arena: settle the pot from the frozen scores,
+   * announce the result to every spectator, and tear the runtime down.
+   */
+  private endTournamentRuntime(runtime: RoomRuntime): void {
+    this.flushEvents(runtime);
+    try {
+      const result = settleTournament(this.opts.db, runtime.tournamentId!);
+      this.broadcast(runtime, {
+        type: 'tournamentEnd',
+        tournamentId: runtime.tournamentId!,
+        winnerUsername: result.winnerUsername,
+        prize: result.prize,
+        rake: result.rake,
+        standings: result.standings,
+      });
+      logger.info('Tournament arena closed', { tournament: runtime.tournamentId, winner: result.winnerUsername });
+    } catch (err) {
+      logger.error('Tournament settlement failed', { tournament: runtime.tournamentId, err: String(err) });
+      this.broadcast(runtime, { type: 'notice', level: 'warn', message: 'The tournament has ended. Results are being finalised.' });
+    }
+    this.rooms.delete(runtime.roomId);
+    this.lastBroadcastAt.delete(runtime.roomId);
+  }
+
   /** End the current round and start a new one, migrating spectators over. */
   rollover(runtime: RoomRuntime): void {
+    // Defensive: tournament arenas always end terminally, never roll over.
+    if (runtime.tournamentId) {
+      this.endTournamentRuntime(runtime);
+      return;
+    }
     const db = this.opts.db;
     const members = [...runtime.members];
     // A rollover closes the round but must NOT end the players' sessions: they

@@ -16,6 +16,7 @@ import { registerPublicRoutes } from './routes/public.routes.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
 import { registerAccountRoutes } from './routes/account.routes.js';
 import { registerGameRoutes } from './routes/game.routes.js';
+import { registerTournamentRoutes } from './routes/tournament.routes.js';
 import { registerAdminRoutes } from './routes/admin.routes.js';
 import { registerGameSocket } from '../ws/game-socket.js';
 import type { RoundManager } from '../sim/round-manager.js';
@@ -191,6 +192,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   registerAuthRoutes(app);
   registerAccountRoutes(app, () => options.rounds);
   registerGameRoutes(app, () => options.rounds);
+  registerTournamentRoutes(app);
   registerAdminRoutes(app, () => options.rounds);
   registerGameSocket(app, () => options.rounds);
 

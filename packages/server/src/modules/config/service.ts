@@ -153,7 +153,13 @@ export function getCannons(db: Database): CannonConfig[] {
 }
 
 export function getRooms(db: Database): RoomConfig[] {
-  return db.all<any>('SELECT * FROM game_rooms ORDER BY min_bet, key').map(mapRoom);
+  return db
+    .all<any>(
+      `SELECT * FROM game_rooms
+       WHERE NOT EXISTS (SELECT 1 FROM tournaments t WHERE t.arena_room_id = game_rooms.id)
+       ORDER BY min_bet, key`,
+    )
+    .map(mapRoom);
 }
 
 export function buildWorkingConfiguration(db: Database, version: string): GameConfiguration {

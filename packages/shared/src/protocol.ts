@@ -1,5 +1,5 @@
 import type { FishMotionParams } from './sim.js';
-import type { FireAck, RoomSummary } from './types.js';
+import type { FireAck, RoomSummary, TournamentEntryView } from './types.js';
 
 /**
  * Wire protocol for the real-time gameplay channel (`/ws/game`).
@@ -24,6 +24,7 @@ import type { FireAck, RoomSummary } from './types.js';
 export type ClientMessage =
   | { type: 'auth'; token?: string }
   | { type: 'join'; roomId: string }
+  | { type: 'joinTournament'; tournamentId: string }
   | { type: 'leave' }
   | { type: 'resync' }
   | {
@@ -131,6 +132,20 @@ export interface FishDefeatedEvent {
   special?: string | null;
 }
 
+/**
+ * Live tournament context attached to `joined` when the player enters an
+ * arena, plus the shape of `standings` updates during the match.
+ */
+export interface TournamentLiveState {
+  tournamentId: string;
+  name: string;
+  endsAt: string;
+  prizePool: number;
+  myScore: number;
+  myRank: number;
+  standings: TournamentEntryView[];
+}
+
 export interface PlayLimitsView {
   /** Minutes allowed per UTC day; 0 = no limit set. */
   limitMin: number;
@@ -155,6 +170,8 @@ export type ServerMessage =
       betOptions: { key: string; name: string; level: number; power: number; shotCost: number; fireRate: number; legal: boolean }[];
       /** Player-protection budget so the HUD can show it without another round-trip. */
       limits?: PlayLimitsView;
+      /** Present when the room is a tournament arena. */
+      tournament?: TournamentLiveState;
     }
   | { type: 'left' }
   | { type: 'snapshot'; snapshot: RoomSnapshot }
@@ -167,6 +184,15 @@ export type ServerMessage =
   | { type: 'playerLeft'; playerId: string }
   | { type: 'playerMoved'; playerId: string; angle: number; cannonKey: string }
   | { type: 'round'; roundId: string; configVersion: string }
+  | { type: 'standings'; tournamentId: string; endsAt: string; prizePool: number; standings: TournamentEntryView[] }
+  | {
+      type: 'tournamentEnd';
+      tournamentId: string;
+      winnerUsername: string | null;
+      prize: number;
+      rake: number;
+      standings: TournamentEntryView[];
+    }
   | { type: 'wave'; size: number }
   | { type: 'explosion'; x: number; y: number; r: number }
   | { type: 'bossDefeated'; x: number; y: number; ownerId: string }

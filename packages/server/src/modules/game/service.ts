@@ -19,7 +19,11 @@ export function listRooms(
   view: { playerCount: (roomId: string) => number; roundIdOf: (roomId: string) => string | null },
   includeInactive = false,
 ): RoomSummary[] {
-  const rows = db.all<any>(`SELECT * FROM game_rooms ${includeInactive ? '' : "WHERE status = 'ACTIVE'"} ORDER BY min_bet, key`);
+  // Tournament arenas are real room rows but never appear in room lists —
+  // players only ever see the tournament, never its private arena.
+  const clauses = ['NOT EXISTS (SELECT 1 FROM tournaments t WHERE t.arena_room_id = game_rooms.id)'];
+  if (!includeInactive) clauses.push(`status = 'ACTIVE'`);
+  const rows = db.all<any>(`SELECT * FROM game_rooms WHERE ${clauses.join(' AND ')} ORDER BY min_bet, key`);
   return rows.map((r) => ({
     id: r.id,
     key: r.key,
@@ -197,6 +201,13 @@ export function setSessionCannon(db: Database, userId: string, cannonKey: string
   const session = db.get<any>("SELECT id, room_id FROM game_sessions WHERE user_id = ? AND status = 'ACTIVE' ORDER BY started_at DESC LIMIT 1", userId);
   if (!session) return { ok: false, message: 'You are not in a game room.' };
   const room = db.get<any>('SELECT * FROM game_rooms WHERE id = ?', session.room_id);
+  const arenaTny = db.get<{ cannon_key: string }>(
+    `SELECT cannon_key FROM tournaments WHERE arena_room_id = ? AND status = 'RUNNING'`,
+    session.room_id,
+  );
+  if (arenaTny && cannonKey !== arenaTny.cannon_key) {
+    return { ok: false, message: 'The tournament cannon is fixed for every player.' };
+  }
   const config = getActiveConfiguration(db);
   const cannon = config.cannons.find((c) => c.key === cannonKey);
   if (!cannon || !cannon.enabled) return { ok: false, message: 'That cannon is not available.' };

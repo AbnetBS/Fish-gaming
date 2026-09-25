@@ -153,6 +153,8 @@ export interface RoomSimOptions {
   hooks: SimEvents;
   width?: number;
   height?: number;
+  /** Cannon seat positions across the bottom (default 4, arenas use capacity). */
+  seats?: number;
   /**
    * Injectable clock. Defaults to wall time (which is what makes client and
    * server agree), but tests pass a virtual clock so they can advance seconds
@@ -229,10 +231,11 @@ export class RoomSimulation {
       existing.avatarSeed = input.avatarSeed;
       return existing;
     }
-    const seats = 4;
+    const seats = Math.min(Math.max(this.opts.seats ?? 4, 1), 32);
     const index = this.seatCursor % seats;
     this.seatCursor = (this.seatCursor + 1) % 1000;
-    const x = this.width * (0.14 + index * 0.24);
+    // The classic 4-seat layout is preserved exactly; larger arenas spread seats evenly.
+    const x = seats === 4 ? this.width * (0.14 + index * 0.24) : this.width * ((index + 0.5) / seats);
     const y = this.height - 96;
     const player: SimPlayer = {
       id: input.id,

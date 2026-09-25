@@ -323,6 +323,55 @@ CREATE INDEX IF NOT EXISTS ix_history_round        ON game_history (round_id);
 CREATE INDEX IF NOT EXISTS ix_history_created      ON game_history (created_at DESC);
 
 -- ---------------------------------------------------------------------------
+-- Tournaments (entry-fee matches, winner takes the pot minus operator rake)
+--
+-- Each tournament owns one hidden arena row in `game_rooms` (excluded from the
+-- public room list): sessions, rounds and shots reference the arena exactly
+-- like a normal room, while entry fees, scores and payouts live here. Money
+-- columns are whole DEMO COINS, like everywhere else in this schema.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS tournaments (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'LOBBY'
+                   CHECK (status IN ('LOBBY','RUNNING','SETTLED','CANCELLED')),
+  arena_room_id  TEXT NOT NULL UNIQUE REFERENCES game_rooms (id) ON DELETE CASCADE,
+  entry_fee      INTEGER NOT NULL CHECK (entry_fee > 0),
+  min_players    INTEGER NOT NULL CHECK (min_players >= 2),
+  max_players    INTEGER NOT NULL CHECK (max_players >= min_players AND max_players <= 8),
+  duration_s     INTEGER NOT NULL CHECK (duration_s >= 60 AND duration_s <= 3600),
+  rake_bps       INTEGER NOT NULL CHECK (rake_bps >= 0 AND rake_bps <= 9000),
+  cannon_key     TEXT NOT NULL,
+  config_version TEXT NOT NULL DEFAULT '',
+  prize_pool     INTEGER NOT NULL DEFAULT 0 CHECK (prize_pool >= 0),
+  rake_amount    INTEGER NOT NULL DEFAULT 0 CHECK (rake_amount >= 0),
+  winner_user_id TEXT REFERENCES users (id) ON DELETE SET NULL,
+  lobby_ends_at  TEXT NOT NULL,
+  starts_at      TEXT,
+  ends_at        TEXT,
+  settled_at     TEXT,
+  created_by     TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_tournaments_status ON tournaments (status, lobby_ends_at);
+CREATE INDEX IF NOT EXISTS ix_tournaments_arena  ON tournaments (arena_room_id);
+
+CREATE TABLE IF NOT EXISTS tournament_entries (
+  id            TEXT PRIMARY KEY,
+  tournament_id TEXT NOT NULL REFERENCES tournaments (id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  score         INTEGER NOT NULL DEFAULT 0 CHECK (score >= 0),
+  kills         INTEGER NOT NULL DEFAULT 0 CHECK (kills >= 0),
+  shots         INTEGER NOT NULL DEFAULT 0 CHECK (shots >= 0),
+  prize         INTEGER NOT NULL DEFAULT 0 CHECK (prize >= 0),
+  rank          INTEGER CHECK (rank IS NULL OR rank > 0),
+  joined_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tournament_entries ON tournament_entries (tournament_id, user_id);
+CREATE INDEX IF NOT EXISTS ix_tournament_entries_user ON tournament_entries (user_id);
+
+-- ---------------------------------------------------------------------------
 -- Audit (append-only: mutations blocked by trigger)
 -- ---------------------------------------------------------------------------
 

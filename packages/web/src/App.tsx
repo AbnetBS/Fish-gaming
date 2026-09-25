@@ -7,6 +7,7 @@ import { Register } from './pages/Register';
 import { ForgotPassword, ResetPassword } from './pages/PasswordRecovery';
 import { Dashboard } from './pages/Dashboard';
 import { Rooms } from './pages/Rooms';
+import { Tournaments } from './pages/Tournaments';
 import { Play } from './pages/Play';
 import { History } from './pages/History';
 import { WalletPage } from './pages/WalletPage';
@@ -19,6 +20,7 @@ import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRooms } from './pages/admin/AdminRooms';
+import { AdminTournaments } from './pages/admin/AdminTournaments';
 import { AdminFish } from './pages/admin/AdminFish';
 import { AdminCannons } from './pages/admin/AdminCannons';
 import { AdminSettings } from './pages/admin/AdminSettings';
@@ -50,6 +52,7 @@ export function App(): JSX.Element {
         <Route element={<Shell />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/play" element={<Rooms />} />
+          <Route path="/tournaments" element={<Tournaments />} />
           <Route path="/history" element={<History />} />
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
@@ -61,6 +64,7 @@ export function App(): JSX.Element {
       {/* The game screen owns the whole viewport, so it sits outside the shell. */}
       <Route element={<Protected />}>
         <Route path="/play/:roomKey" element={<Play />} />
+        <Route path="/play/tournament/:tournamentId" element={<Play />} />
       </Route>
 
       <Route element={<Protected admin />}>
@@ -68,6 +72,7 @@ export function App(): JSX.Element {
           <Route index element={<AdminDashboard />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="rooms" element={<AdminRooms />} />
+          <Route path="tournaments" element={<AdminTournaments />} />
           <Route path="fish" element={<AdminFish />} />
           <Route path="cannons" element={<AdminCannons />} />
           <Route path="settings" element={<AdminSettings />} />
